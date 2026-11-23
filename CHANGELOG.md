@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 修复导入含 `image/offload` 事件的日志失败（`invalid seed event at index N: session event "image/offload" requires a message projection; load its owning plugin or supply its projection definition`）：恢复校验过去以空投影列表调用 `Session.fromRestore`，现在改为传入宿主运行时注册的 message projections（`sessions.messageProjections`），官方 image-offload 插件注册的解释器可以直接生效；新增 1 项回归测试。
 - 适配并验证 DSH `0.2.2-rc.5`：本机安装该版本后 `npm run check` 与 `npm test` 31/31 通过，插件代码无需改动。
 - 修复 CI cohort 在 Linux 上的安装失败：官方包 `@deepseek-ai/dsh-experimental-cua-macos` 自 0.2.2-rc.5 起只发布 darwin（它只是 `dsh-cua-bundle` 的 optionalDependency），cohort 为钉住 peer 图而显式安装每个官方包时被 npm 以 `EBADPLATFORM` 拒绝。现在按 manifest 的 `os`/`cpu` 过滤，并新增 4 项选择逻辑单测。
 - CI cohort 与开发依赖升到 `0.2.2-rc.5`、Node 24（该版本 engines 要求 Node >= 24.9）；peer 范围保持 `~0.2.2-rc.1`，rc.1–rc.5 的宿主都能满足。

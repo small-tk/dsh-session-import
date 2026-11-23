@@ -208,7 +208,7 @@ export function previewOf(parsed) {
 }
 
 /** Give the imported tree fresh identities without filtering events or changing sequence references. */
-export function prepareSessions(parsed, cwd, { restamp = true, title = '' } = {}) {
+export function prepareSessions(parsed, cwd, { restamp = true, title = '', projections = [] } = {}) {
   const ids = new Map(parsed.logs.map(log => [log.header.id, `session-import-${randomUUID()}`]));
   const latestTime = parsed.logs.reduce((latest, log) => log.events.reduce((time, event) => Math.max(time, event.time), Math.max(latest, log.header.createdAt)), 0);
   const shift = restamp ? Math.max(0, Date.now() - latestTime) : 0;
@@ -245,12 +245,17 @@ export function prepareSessions(parsed, cwd, { restamp = true, title = '' } = {}
       type: 'session/title', seq: log.events.length, time: Math.max(Date.now(), log.events.at(-1)?.time ?? 0),
       data: { title, messageSeqs: [], source: { kind: 'user' } },
     });
-    validatePrepared(log);
+    validatePrepared(log, projections);
     return log;
   });
 }
 
-/** Invoke the current runtime's restoration checks after identity/attachment substitutions. */
-export function validatePrepared(log) {
-  Session.fromRestore(log.header.id, structuredClone(log.events), log.header, log.inheritedEventCount, 'detached');
+/**
+ * Invoke the current runtime's restoration checks after identity/attachment substitutions.
+ * 恢复回放要求每个 message-projection 事件都带上所属插件注册的解释器
+ * （例如 image/offload），所以这里把宿主运行时的投影一并传入；
+ * 缺失时会抛出 "requires a message projection"。
+ */
+export function validatePrepared(log, projections = []) {
+  Session.fromRestore(log.header.id, structuredClone(log.events), log.header, log.inheritedEventCount, 'detached', projections);
 }

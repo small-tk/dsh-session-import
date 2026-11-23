@@ -14,8 +14,9 @@ const JsonlPersistence = {
   Config: JsonlPersistenceModule.Config,
 };
 import { Session } from '@deepseek-ai/dsh-session';
+import { currentSessionMessageProjections } from '@deepseek-ai/dsh-session-format-catalog/message-projections';
 import { SessionImporter } from '../importer.js';
-import { parseUpload, prepareSessions, previewOf, sha256, SESSION_FORMAT_VERSION } from '../session-format.js';
+import { parseUpload, prepareSessions, previewOf, sha256, SESSION_FORMAT_VERSION, validatePrepared } from '../session-format.js';
 import { RecoveryStore } from '../storage-adapter.js';
 import { fixture, zip, pngFixture } from './helpers.js';
 
@@ -33,6 +34,22 @@ async function harness(t, compression = 'none') {
   t.after(async () => { await importer.dispose(); await context.fiber.dispose(); await rm(dir, { recursive: true, force: true }); });
   return { dir, cwd, context, importer, workspace, attached, persistence: context.sessionPersistence };
 }
+
+/** 带一张图片的用户消息行，用于构造 image/offload 目标。 */
+const imageBlock = { type: 'image', attachment: { attachmentId: 'a'.repeat(64), mediaType: 'image/png', bytes: 12, width: 1, height: 1, name: 'shot.png' } };
+
+test('restore validation receives the runtime message projections', () => {
+  const rows = fixture(3).toString('utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const user = rows.find(row => row.type === 'user/message');
+  user.data.content.push(imageBlock);
+  const log = prepareSessions(parseUpload(Buffer.from(rows.map(row => JSON.stringify(row)).join('\n') + '\n')), '/private/tmp', { restamp: false })[0];
+  const userSeq = log.events.findIndex(event => event.type === 'user/message');
+  log.events.push({ type: 'image/offload', seq: log.events.length, time: 9999, data: { targets: [{ seq: userSeq, imageIndexes: [0] }] } });
+  assert.throws(() => validatePrepared(log), /requires a message projection/u);
+  assert.doesNotThrow(() => validatePrepared(log, currentSessionMessageProjections));
+  const importer = new SessionImporter({ get: key => key === 'sessions' ? { messageProjections: currentSessionMessageProjections } : undefined });
+  assert.deepEqual(importer.projections(), currentSessionMessageProjections);
+});
 
 for (const version of [0, 1, 2, 3]) test(`official migration accepts v${version} and preserves conversation text`, () => {
   const parsed = parseUpload(fixture(version));

@@ -22,6 +22,14 @@ export class SessionImporter {
     if (errors.length) throw new AggregateError(errors, '释放导入会话失败');
   }
 
+  /**
+   * 宿主运行时注册的 message-projection 解释器（例如 image/offload 由官方插件注册）。
+   * 恢复回放缺少对应解释器会抛 "requires a message projection"，因此校验必须带上它们。
+   */
+  projections() {
+    return [...(this.ctx.get('sessions')?.messageProjections ?? [])];
+  }
+
   services() {
     const persistence = this.ctx.get('sessionPersistence');
     const workspaces = this.ctx.get('workspaceRegistry');
@@ -76,7 +84,7 @@ export class SessionImporter {
         const ref = saved.get(attachmentKey(block.type, block.attachment));
         if (ref) block.attachment = { ...ref, ...(block.type === 'image' && block.attachment.name ? { name: block.attachment.name } : {}) };
       });
-      validatePrepared(log);
+      validatePrepared(log, this.projections());
     }
   }
 
@@ -92,7 +100,7 @@ export class SessionImporter {
       const cwd = await this.target(query, parsed);
       const title = (query.title ?? '').trim();
       if (Buffer.byteLength(title) > 100) throw errorOf(400, '标题最多 100 UTF-8 字节', 'options');
-      const logs = prepareSessions(parsed, cwd, { restamp: query.restamp !== '0', title });
+      const logs = prepareSessions(parsed, cwd, { restamp: query.restamp !== '0', title, projections: this.projections() });
       for (const log of logs) recovery.pathFor(log.header);
       await this.validateAttachments(parsed);
       const summary = {
@@ -115,7 +123,7 @@ export class SessionImporter {
           try { await writer.append(log.events); await writer.flush(); }
           finally { await writer.close(); }
           const reader = await persistence.open(log.header.id, 'read');
-          try { const content = await reader.read(); validatePrepared({ ...log, events: content.events }); }
+          try { const content = await reader.read(); validatePrepared({ ...log, events: content.events }, this.projections()); }
           finally { await reader.close(); }
           record.revision = (await persistence.stat(log.header.id)).revision;
         }
